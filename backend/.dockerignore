@@ -1,0 +1,20 @@
+# Keep the build context small + reproducible.
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+**/.env
+**/.env.*
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.DS_Store
+node_modules
+.next
+.git
+.idea
+.vscode
+data/.cache
+evals
+scripts
+frontend

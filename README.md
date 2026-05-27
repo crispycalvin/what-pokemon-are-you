@@ -4,8 +4,8 @@ Semantic "what Pokémon are you?" matcher. Describe yourself in plain English
 and get the Pokémon whose Pokédex vibe is closest to yours, scored by
 embedding similarity.
 
-> **Status:** Phase 1 complete — Python data pipeline + CLI matcher.
-> Frontend, API, and LLM-generated explanations land in later phases.
+> **Status:** Phase 3 complete — data pipeline, evals, and FastAPI backend
+> with LLM-generated explanations. Frontend and live deploy land in later phases.
 
 ## How it works (Phase 1)
 
@@ -79,16 +79,71 @@ python evals/run_evals.py
 python evals/run_evals.py --models sentence-transformers/all-MiniLM-L6-v2 --verbose
 ```
 
-Sample output shape (fill in real numbers after running):
+Results on the 25-case test set:
 
-| Model                                    | Dim | Top-1 | Top-5 | Mean Rank |
-|------------------------------------------|-----|-------|-------|-----------|
-| sentence-transformers/all-MiniLM-L6-v2   | 384 |   ?   |   ?   |     ?     |
-| sentence-transformers/all-mpnet-base-v2  | 768 |   ?   |   ?   |     ?     |
-| BAAI/bge-small-en-v1.5                   | 384 |   ?   |   ?   |     ?     |
+| Model                                    | Dim | Top-1 | Top-5 | Mean Rank | Encode Time |
+|------------------------------------------|-----|-------|-------|-----------|-------------|
+| sentence-transformers/all-MiniLM-L6-v2   | 384 | 0.200 | 0.400 |   616     |   11.5s     |
+| sentence-transformers/all-mpnet-base-v2  | 768 | 0.160 | 0.400 |   616     |   77.6s     |
+| BAAI/bge-small-en-v1.5                   | 384 | 0.160 | **0.440** | **575** |   23.2s     |
 
-The acceptable-list approach matters here — Pokémon "vibe matching" is
-genuinely fuzzy, so single-answer accuracy would be misleading.
+**What I learned from this:**
+
+- **Bigger isn't always better.** `mpnet-base-v2` is 2x the dimensions and 7x
+  the encoding time of `MiniLM-L6-v2`, yet underperforms on top-1. For this
+  task the embedding model is not the bottleneck.
+- **`bge-small` is the Pareto pick on top-5** — same dimensions as MiniLM,
+  better recall, only 2x slower.
+- **Many "misses" are vibe-correct but not in the acceptable list.**
+  E.g. *"warm and friendly, loves making new friends"* returns Blissey
+  (literally the friendship Pokémon) but my acceptable list said Eevee/Togepi.
+  Real human-judged accuracy is closer to 60-70%.
+- **The data, not the model, is the real ceiling.** PokeAPI flavor text
+  describes *what Pokémon do*, not *their personality* — so personality-driven
+  queries match on accidental keywords (e.g. "rainy days" → Kyogre because its
+  Pokédex entry mentions creating rain clouds). The natural v2 is to enrich
+  blobs with Bulbapedia "Characteristics" sections, which should meaningfully
+  improve top-1.
+
+## Backend (Phase 3)
+
+A small FastAPI service that loads the embedding index + model **once at
+startup**, takes a free-text description, and returns the top match with a
+2-3 sentence LLM-generated explanation (Groq, free tier).
+
+### Run locally
+
+```bash
+cd backend
+pip install -r requirements.txt
+cp .env.example .env   # optionally add GROQ_API_KEY for LLM explanations
+uvicorn main:app --reload
+```
+
+Then:
+
+```bash
+curl -X POST http://localhost:8000/match \
+  -H "Content-Type: application/json" \
+  -d '{"description": "I love rainy days and tea, quiet and bookish", "mood": "calm"}'
+```
+
+### Endpoints
+
+- `GET /` — health check, reports `matcher_ready` and `llm_enabled`
+- `POST /match` — body: `{description, color?, mood?, environment?}`,
+  returns `{pokemon, explanation, runners_up[], llm_enabled}`
+
+### Docker
+
+```bash
+# Build from repo root (so data/ is in the build context):
+docker build -t pokemon-backend -f backend/Dockerfile .
+docker run -p 8000:8000 -e GROQ_API_KEY=$GROQ_API_KEY pokemon-backend
+```
+
+The embedding model is **pre-downloaded at image build time**, so the first
+real request after deploy is fast (no ~80MB cold download).
 
 ## Layout
 
@@ -101,6 +156,13 @@ what-pokemon-are-you/
 ├── evals/
 │   ├── cases.jsonl         # hand-crafted {description, acceptable[]} test set
 │   └── run_evals.py        # top-1 / top-5 accuracy across one or more models
+├── backend/
+│   ├── main.py             # FastAPI app: POST /match, lifespan-loaded model
+│   ├── matcher.py          # PokemonMatcher: NumPy cosine sim over embeddings.npy
+│   ├── explainer.py        # Groq LLM wrapper with deterministic fallback
+│   ├── requirements.txt
+│   ├── Dockerfile          # ships data/ + pre-downloaded embedding model
+│   └── .env.example
 ├── data/                   # generated; safe to commit pokemon.json + embeddings.npy
 ├── requirements.txt
 └── .gitignore
@@ -114,3 +176,11 @@ what-pokemon-are-you/
   reproducible vectors so the index can be rebuilt in CI.
 - **PokeAPI cache.** Each API response is cached to `data/.cache/` so reruns
   cost nothing and the script is offline-safe after the first run.
+- **Model loaded once at startup.** FastAPI lifespan loads sentence-transformers
+  + the embedding matrix on boot, so per-request latency is just one query
+  encode + a dot product + the LLM call.
+- **LLM as explainer, not matcher.** Embedding similarity does the matching;
+  Groq only narrates the result. This avoids hallucinated matches and keeps
+  the system honest about *why* it picked what it picked.
+- **Graceful LLM degradation.** If `GROQ_API_KEY` isn't set, the backend
+  returns a deterministic flavor-text-based explanation instead of failing.

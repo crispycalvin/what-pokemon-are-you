@@ -1,0 +1,10 @@
+# Backend service deps. Kept separate from top-level requirements.txt so the
+# Docker image stays minimal (no need to ship scripts/eval-only deps).
+
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.9.2
+numpy==1.26.4
+sentence-transformers==3.0.1
+groq==0.13.0
+python-dotenv==1.0.1
