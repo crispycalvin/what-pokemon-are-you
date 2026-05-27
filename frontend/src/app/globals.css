@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+/* Background: full-bleed Pokémon collage with a strong dark overlay so foreground
+ * cards + the title stay readable. `fixed` makes the image sit still while
+ * content scrolls — feels more like a UI than a webpage. */
+body {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(15, 23, 42, 0.82) 100%),
+    url("/pokemon_image.jpg") center/cover no-repeat fixed;
+  color: #f1f5f9;
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------------------------
+ * Pokémon logo-style title: yellow fill, dark blue inner outline, light blue
+ * outer outline, and a soft drop shadow. Built with stacked text-shadows
+ * because -webkit-text-stroke only supports a single stroke width.
+ *
+ *   Interior Yellow : #ffcb05
+ *   Shadow Yellow   : #c7a008  (subtle bottom shadow inside the letters)
+ *   Dark Blue       : #3c5aa6  (inner 3px outline)
+ *   Light Blue      : #2a75bb  (outer 6px outline)
+ * --------------------------------------------------------------------------- */
+.pokemon-title {
+  color: #ffcb05;
+  font-family: var(--font-pokemon), Impact, sans-serif;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-shadow:
+    /* Subtle inner-bottom shadow inside each letter (depth) */
+    2px 2px 0 #c7a008,
+    /* Dark blue inner outline — 8 directions at ~3px radius */
+    3px 3px 0 #3c5aa6,
+    -3px -3px 0 #3c5aa6,
+    3px -3px 0 #3c5aa6,
+    -3px 3px 0 #3c5aa6,
+    3px 0 0 #3c5aa6,
+    -3px 0 0 #3c5aa6,
+    0 3px 0 #3c5aa6,
+    0 -3px 0 #3c5aa6,
+    /* Light blue outer outline — 8 directions at ~6px radius */
+    6px 6px 0 #2a75bb,
+    -6px -6px 0 #2a75bb,
+    6px -6px 0 #2a75bb,
+    -6px 6px 0 #2a75bb,
+    6px 0 0 #2a75bb,
+    -6px 0 0 #2a75bb,
+    0 6px 0 #2a75bb,
+    0 -6px 0 #2a75bb,
+    /* Final soft drop shadow for separation from the background */
+    0 8px 16px rgba(0, 0, 0, 0.5);
+}

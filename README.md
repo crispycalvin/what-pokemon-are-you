@@ -4,8 +4,8 @@ Semantic "what Pokémon are you?" matcher. Describe yourself in plain English
 and get the Pokémon whose Pokédex vibe is closest to yours, scored by
 embedding similarity.
 
-> **Status:** Phase 3 complete — data pipeline, evals, and FastAPI backend
-> with LLM-generated explanations. Frontend and live deploy land in later phases.
+> **Status:** Phase 4 complete — data pipeline, evals, FastAPI backend with
+> LLM explanations, and a Next.js + Tailwind frontend. Live deploy in Phase 5.
 
 ## How it works (Phase 1)
 
@@ -145,6 +145,59 @@ docker run -p 8000:8000 -e GROQ_API_KEY=$GROQ_API_KEY pokemon-backend
 The embedding model is **pre-downloaded at image build time**, so the first
 real request after deploy is fast (no ~80MB cold download).
 
+## Frontend (Phase 4)
+
+A Next.js 15 + Tailwind app with three views — quiz form, loading, and the
+result card — driven by a single-page state machine. Uses `recharts` for the
+base-stats radar and color-codes everything by Pokémon type.
+
+### Run locally
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL defaults to localhost:8000
+npm run dev
+```
+
+Then open <http://localhost:3000>. The backend (Phase 3) must be running too.
+
+### Layout
+
+```
+frontend/
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx       # root layout + Inter font
+│   │   ├── page.tsx         # state machine: form → loading → result
+│   │   └── globals.css
+│   ├── components/
+│   │   ├── QuizForm.tsx     # description + structured fields
+│   │   ├── PokemonResult.tsx # hero card + runners-up + try-again
+│   │   ├── StatsRadar.tsx   # recharts radar of 6 base stats
+│   │   ├── TypeBadge.tsx    # color-coded type pill
+│   │   └── LoadingSpinner.tsx # CSS-only pokéball spinner
+│   └── lib/
+│       ├── api.ts           # fetch wrapper for POST /match
+│       ├── types.ts         # mirrors backend Pydantic models
+│       └── typeColors.ts    # canonical type → hex color map
+├── tailwind.config.ts
+├── next.config.mjs          # whitelists raw.githubusercontent.com for sprites
+└── package.json
+```
+
+### Design notes
+
+- **Single page instead of two routes.** The plan called for `/` (form) +
+  `/result` but a single-page state machine is dramatically simpler — no URL
+  state passing, no router gymnastics, and "try again" is one button instead
+  of a back-nav.
+- **Color-coded type backgrounds.** The hero card uses a subtle
+  `linear-gradient(135deg, primaryTypeColor, secondaryTypeColor)` so the UI
+  feels visually distinct for every Pokémon without per-Pokémon assets.
+- **Pure-CSS pokéball spinner.** No SVG dependency, no extra animation lib.
+- **Inter via `next/font`.** Self-hosted, no external CSS request, no FOIT.
+
 ## Layout
 
 ```
@@ -163,6 +216,8 @@ what-pokemon-are-you/
 │   ├── requirements.txt
 │   ├── Dockerfile          # ships data/ + pre-downloaded embedding model
 │   └── .env.example
+├── frontend/               # Next.js 15 + Tailwind + recharts UI
+│   └── src/{app,components,lib}/
 ├── data/                   # generated; safe to commit pokemon.json + embeddings.npy
 ├── requirements.txt
 └── .gitignore
