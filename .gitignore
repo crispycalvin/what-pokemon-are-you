@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Node / Next.js (for later phases)
+node_modules/
+.next/
+out/
+.vercel/
+
+# Project-specific caches we don't want committed
+# without re-running the pipeline)
+data/.cache/
+
+# Logs
+*.log
