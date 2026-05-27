@@ -64,6 +64,32 @@ Rank  Pokémon            Score    Types                  Flavor
 ...
 ```
 
+## Evaluation
+
+A hand-crafted test set in [evals/cases.jsonl](evals/cases.jsonl) maps 25
+self-descriptions to 4–7 acceptable Pokémon each. The runner re-encodes the
+whole Pokédex with each candidate model in memory (without overwriting the
+committed index) and reports top-1 / top-5 accuracy plus mean rank.
+
+```bash
+# Run against the default 3-model comparison (downloads ~500MB of models on first run).
+python evals/run_evals.py
+
+# Single model, with per-case PASS/MISS output.
+python evals/run_evals.py --models sentence-transformers/all-MiniLM-L6-v2 --verbose
+```
+
+Sample output shape (fill in real numbers after running):
+
+| Model                                    | Dim | Top-1 | Top-5 | Mean Rank |
+|------------------------------------------|-----|-------|-------|-----------|
+| sentence-transformers/all-MiniLM-L6-v2   | 384 |   ?   |   ?   |     ?     |
+| sentence-transformers/all-mpnet-base-v2  | 768 |   ?   |   ?   |     ?     |
+| BAAI/bge-small-en-v1.5                   | 384 |   ?   |   ?   |     ?     |
+
+The acceptable-list approach matters here — Pokémon "vibe matching" is
+genuinely fuzzy, so single-answer accuracy would be misleading.
+
 ## Layout
 
 ```
@@ -72,6 +98,9 @@ what-pokemon-are-you/
 │   ├── fetch_pokemon.py    # PokeAPI → data/pokemon.json (with per-request cache)
 │   ├── build_index.py      # sentence-transformers → data/embeddings.npy
 │   └── match_cli.py        # cosine similarity CLI matcher
+├── evals/
+│   ├── cases.jsonl         # hand-crafted {description, acceptable[]} test set
+│   └── run_evals.py        # top-1 / top-5 accuracy across one or more models
 ├── data/                   # generated; safe to commit pokemon.json + embeddings.npy
 ├── requirements.txt
 └── .gitignore
