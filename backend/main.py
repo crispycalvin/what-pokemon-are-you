@@ -153,7 +153,15 @@ def match(req: MatchRequest) -> MatchResponse:
         raise HTTPException(status_code=503, detail="Service still warming up.")
 
     query = _build_query_blob(req)
-    matches = matcher.find_top_n(query, n=5)
+    # Pass structured fields separately so the matcher can apply type-affinity
+    # bonuses on top of the semantic score (hybrid retrieval).
+    matches = matcher.find_top_n(
+        query,
+        n=5,
+        environment=req.environment or None,
+        color=req.color or None,
+        mood=req.mood or None,
+    )
     if not matches:
         raise HTTPException(status_code=500, detail="No matches found.")
 

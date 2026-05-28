@@ -45,10 +45,18 @@ pip install -r requirements.txt
 # 1. Pull + cache every Pokémon from PokeAPI (~5–10 min first time, instant after).
 python scripts/fetch_pokemon.py
 
-# 2. Build the embedding index (~1–2 min on CPU).
+# 2. (Recommended) Enrich each Pokémon with an LLM-generated personality blurb
+#    so embedding matching has real personality vocabulary to grab onto.
+#    ~30 min on Groq free tier; output is cached + resumable.
+#    Requires GROQ_API_KEY in backend/.env (see Phase 3 setup).
+python scripts/enrich_descriptions.py
+
+# 3. Build the embedding index (~1–2 min on CPU).
+#    Automatically uses data/personalities.json if it exists, otherwise
+#    falls back to baseline blobs.
 python scripts/build_index.py
 
-# 3. Match yourself.
+# 4. Match yourself.
 python scripts/match_cli.py "I'm a quiet reader who likes rainy days and tea"
 ```
 
@@ -101,9 +109,36 @@ Results on the 25-case test set:
 - **The data, not the model, is the real ceiling.** PokeAPI flavor text
   describes *what Pokémon do*, not *their personality* — so personality-driven
   queries match on accidental keywords (e.g. "rainy days" → Kyogre because its
-  Pokédex entry mentions creating rain clouds). The natural v2 is to enrich
-  blobs with Bulbapedia "Characteristics" sections, which should meaningfully
-  improve top-1.
+  Pokédex entry mentions creating rain clouds). v0.2 (below) fixes exactly
+  this with LLM-generated personality enrichment.
+
+## Corpus enrichment v0.2 (document expansion)
+
+The single biggest accuracy improvement: rather than swap embedding models,
+rewrite the *corpus* using an LLM so it actually contains personality vocabulary.
+
+[`scripts/enrich_descriptions.py`](scripts/enrich_descriptions.py) takes each
+Pokémon's PokeAPI record and asks Groq's `llama-3.1-8b-instant` for a 2-3
+sentence personality / vibe description focused on temperament, energy level,
+and social tendencies (explicitly *not* battle mechanics). Results are cached
+to [`data/personalities.json`](data/personalities.json) — the script is
+**resumable**, so a crash or rate-limit just picks up where it left off.
+
+```bash
+# One-time enrichment. Default 2s/call to stay under Groq's free 30 RPM limit.
+python scripts/enrich_descriptions.py
+
+# Rebuild the index with enriched blobs — same script, automatically picks
+# up personalities.json if present.
+python scripts/build_index.py
+
+# Re-run evals — output will report "Corpus mode: ENRICHED" up top.
+python evals/run_evals.py --models sentence-transformers/all-MiniLM-L6-v2
+```
+
+**This is the textbook `doc2query` / document expansion pattern** — the LLM
+runs *offline* to enrich the corpus, the embedding model still does all the
+matching at query time, and per-request latency is unchanged.
 
 ## Backend (Phase 3)
 
@@ -203,9 +238,10 @@ frontend/
 ```
 what-pokemon-are-you/
 ├── scripts/
-│   ├── fetch_pokemon.py    # PokeAPI → data/pokemon.json (with per-request cache)
-│   ├── build_index.py      # sentence-transformers → data/embeddings.npy
-│   └── match_cli.py        # cosine similarity CLI matcher
+│   ├── fetch_pokemon.py        # PokeAPI → data/pokemon.json (with per-request cache)
+│   ├── enrich_descriptions.py  # Groq → data/personalities.json (LLM corpus enrichment)
+│   ├── build_index.py          # sentence-transformers → data/embeddings.npy
+│   └── match_cli.py            # cosine similarity CLI matcher
 ├── evals/
 │   ├── cases.jsonl         # hand-crafted {description, acceptable[]} test set
 │   └── run_evals.py        # top-1 / top-5 accuracy across one or more models

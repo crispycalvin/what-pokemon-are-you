@@ -32,9 +32,12 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 # Re-use the canonical blob-builder so evals stay in sync with build_index.py.
+# Importing build_all_blobs (rather than the lower-level builder) means evals
+# automatically pick up LLM-enriched personalities when data/personalities.json
+# exists, so the metrics reflect what's actually in production.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from build_index import build_description_blob  # noqa: E402
+from build_index import build_all_blobs, load_personalities  # noqa: E402
 
 # Project paths.
 DATA_DIR = ROOT / "data"
@@ -90,8 +93,9 @@ def evaluate_model(
     model = SentenceTransformer(model_name)
 
     # Build the per-model index in memory (don't touch data/embeddings.npy).
+    # build_all_blobs() automatically incorporates personalities.json if present.
     names = [r["name"] for r in records]
-    blobs = [build_description_blob(r) for r in records]
+    blobs = build_all_blobs(records)
 
     start = time.time()
     embeddings = model.encode(
@@ -204,6 +208,13 @@ def main() -> None:
     records = load_pokemon()
     cases = load_cases()
     print(f"Loaded {len(records)} Pokémon and {len(cases)} eval cases.")
+
+    # Make it obvious which corpus flavor the eval is measuring.
+    personalities = load_personalities()
+    if personalities:
+        print(f"Corpus mode: ENRICHED (using {len(personalities)} LLM-generated personalities).")
+    else:
+        print("Corpus mode: BASELINE (no personalities.json found — run scripts/enrich_descriptions.py to enrich).")
 
     results = [
         evaluate_model(model, records, cases, top_n=args.top, verbose=args.verbose)

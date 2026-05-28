@@ -24,6 +24,7 @@ from sentence_transformers import SentenceTransformer
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 POKEMON_FILE = DATA_DIR / "pokemon.json"
+PERSONALITIES_FILE = DATA_DIR / "personalities.json"
 EMBEDDINGS_FILE = DATA_DIR / "embeddings.npy"
 NAMES_FILE = DATA_DIR / "pokemon_names.json"
 
@@ -34,7 +35,7 @@ DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # Description-blob construction
 # ---------------------------------------------------------------------------
 
-def build_description_blob(record: dict[str, Any]) -> str:
+def build_description_blob(record: dict[str, Any], personality: str | None = None) -> str:
     # Combine the most evocative fields into a single short paragraph the
     # embedding model can chew on. Keep it natural-language, not key/value.
     name = record.get("name", "").replace("-", " ")
@@ -43,8 +44,12 @@ def build_description_blob(record: dict[str, Any]) -> str:
     adjectives = ", ".join(record.get("stat_adjectives", []))
     flavor = record.get("flavor_text", "").strip()
 
-    # Order matters: lead with flavor text since it's the richest signal.
+    # Lead with the LLM-generated personality when available — it speaks the
+    # same vocabulary users use about themselves, so it's the richest signal.
+    # Otherwise fall back to leading with raw Pokédex flavor text.
     parts = []
+    if personality:
+        parts.append(personality)
     if flavor:
         parts.append(flavor)
     parts.append(f"{name.title()} is a {types}-type Pokémon.")
@@ -54,6 +59,22 @@ def build_description_blob(record: dict[str, Any]) -> str:
         parts.append(f"It feels {adjectives}.")
 
     return " ".join(parts)
+
+
+def load_personalities() -> dict[str, str]:
+    # Returns {pokemon_name: personality_blurb} if the enrichment file exists,
+    # else an empty dict (and downstream code falls back to baseline blobs).
+    if not PERSONALITIES_FILE.exists():
+        return {}
+    with PERSONALITIES_FILE.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def build_all_blobs(records: list[dict[str, Any]]) -> list[str]:
+    # Single entry point used by both build_index.py and run_evals.py so they
+    # always stay in sync about whether personalities are mixed in.
+    personalities = load_personalities()
+    return [build_description_blob(r, personalities.get(r["name"])) for r in records]
 
 # ---------------------------------------------------------------------------
 # Main
@@ -85,8 +106,16 @@ def main() -> None:
 
     print(f"Loaded {len(records)} Pokémon records.")
 
+    # Surface whether the index will be enriched or baseline, so the operator
+    # knows what flavor of embeddings.npy they're about to produce.
+    personalities = load_personalities()
+    if personalities:
+        print(f"Using LLM-generated personalities for {len(personalities)} Pokémon (enriched blobs).")
+    else:
+        print(f"No personalities.json found — building baseline blobs. Run scripts/enrich_descriptions.py for richer matching.")
+
     # Build one description blob per Pokémon, preserving row order.
-    blobs = [build_description_blob(record) for record in records]
+    blobs = [build_description_blob(record, personalities.get(record["name"])) for record in records]
     names = [record["name"] for record in records]
 
     # Encode in batches with a progress bar; normalize for cosine similarity.

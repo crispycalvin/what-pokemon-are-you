@@ -9,8 +9,12 @@ interface QuizFormProps {
   disabled?: boolean;
 }
 
-// Hand-picked vibe options for the structured fields. Free-text would be more
-// flexible but dropdowns keep the UX fast and stop people from blanking.
+// All dropdown options are displayed capitalized and sent lowercase so the
+// backend's type_affinity table matches without any casing logic on the frontend.
+const COLORS = [
+  "Red", "Blue", "Green", "Yellow", "Purple",
+  "Pink", "Black", "White", "Brown", "Orange", "Grey",
+];
 const MOODS = ["Calm", "Energetic", "Curious", "Bold", "Quiet", "Playful", "Determined"];
 const ENVIRONMENTS = [
   "The Ocean",
@@ -78,14 +82,19 @@ export function QuizForm({ onSubmit, disabled = false }: QuizFormProps) {
           <label htmlFor="color" className="block text-sm font-semibold text-slate-800 dark:text-slate-200">
             Favorite color
           </label>
-          <input
+          <select
             id="color"
-            type="text"
             value={form.color}
             onChange={(e) => setForm({ ...form, color: e.target.value })}
-            placeholder="Blue"
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-          />
+          >
+            <option value="">(any)</option>
+            {COLORS.map((c) => (
+              <option key={c} value={c.toLowerCase()}>
+                {c}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="space-y-2">
@@ -119,7 +128,7 @@ export function QuizForm({ onSubmit, disabled = false }: QuizFormProps) {
           >
             <option value="">(any)</option>
             {ENVIRONMENTS.map((e) => (
-              <option key={e} value={e}>
+              <option key={e} value={e.toLowerCase()}>
                 {e}
               </option>
             ))}

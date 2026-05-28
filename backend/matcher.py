@@ -1,9 +1,17 @@
 """
-Cosine-similarity matcher backed by a pre-built NumPy embedding index.
+Hybrid matcher: cosine-similarity embedding search + type-affinity boosting.
 
 Loads everything once (data/embeddings.npy + pokemon.json + the
-sentence-transformers model) and exposes a single `find_top_n` method that
-embeds a query and returns the top-K nearest Pokémon records with scores.
+sentence-transformers model) and exposes a single `find_top_n` method.
+
+Scoring is two-stage:
+  1. Retrieve the top CANDIDATE_POOL candidates by raw cosine similarity.
+  2. Add type-affinity bonuses for each candidate based on the user's
+     structured fields (environment, color, mood), then re-rank.
+
+This ensures the structured fields meaningfully influence the result
+(e.g. "environment: ocean" surfaces water-types) without completely
+overriding a strong semantic match.
 """
 
 from __future__ import annotations
@@ -16,6 +24,8 @@ from typing import Any
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
+
+from type_affinity import compute_type_bonus
 
 # Default data dir resolves to <repo>/data when running locally.
 # Docker overrides via DATA_DIR env var.
@@ -91,10 +101,24 @@ class PokemonMatcher:
     # Matching
     # ------------------------------------------------------------------
 
-    def find_top_n(self, query: str, n: int = 5) -> list[Match]:
+    # How many candidates to pull from cosine-sim before re-ranking with
+    # type bonuses. Large enough to give the boost room to surface the right
+    # Pokémon; small enough to stay fast (still just a list comprehension).
+    _CANDIDATE_POOL = 50
+
+    def find_top_n(
+        self,
+        query: str,
+        n: int = 5,
+        *,
+        environment: str | None = None,
+        color: str | None = None,
+        mood: str | None = None,
+    ) -> list[Match]:
         if not self.ready or self._model is None or self._embeddings is None:
             raise RuntimeError("Matcher not loaded. Call load() first.")
 
+        # --- Stage 1: semantic retrieval ---
         # Encode the query with the same normalization as the index.
         query_vec = self._model.encode(
             [query],
@@ -102,15 +126,32 @@ class PokemonMatcher:
             convert_to_numpy=True,
         )[0].astype(np.float32)
 
-        # Cosine similarity over the whole index in one matmul.
-        scores = self._embeddings @ query_vec
+        # Cosine similarity over the whole index in one matmul (~1ms).
+        cosine_scores = self._embeddings @ query_vec
 
-        # Top-N partial sort is faster than a full argsort on 1k+ rows.
-        n = min(n, len(scores))
-        top_indices = np.argpartition(-scores, kth=n - 1)[:n]
-        top_indices = top_indices[np.argsort(-scores[top_indices])]
+        # Pull a wider candidate pool so the re-ranking step has room to
+        # surface a better-typed Pokémon that narrowly missed the top-N.
+        pool_size = min(self._CANDIDATE_POOL, len(cosine_scores))
+        pool_indices = np.argpartition(-cosine_scores, kth=pool_size - 1)[:pool_size]
+
+        # --- Stage 2: hybrid re-ranking with type-affinity bonuses ---
+        # For each candidate, add structured-field type bonuses to the cosine score.
+        hybrid_scores: list[tuple[float, int]] = []
+        for i in pool_indices:
+            record = self._records[i]
+            bonus = compute_type_bonus(
+                record.get("types", []),
+                environment=environment,
+                color=color,
+                mood=mood,
+            )
+            hybrid_scores.append((float(cosine_scores[i]) + bonus, int(i)))
+
+        # Sort candidates by combined score descending, take top-N.
+        hybrid_scores.sort(key=lambda x: x[0], reverse=True)
+        top_n = hybrid_scores[:n]
 
         return [
-            Match(rank=rank, score=float(scores[i]), record=self._records[i])
-            for rank, i in enumerate(top_indices, start=1)
+            Match(rank=rank, score=combined_score, record=self._records[idx])
+            for rank, (combined_score, idx) in enumerate(top_n, start=1)
         ]
