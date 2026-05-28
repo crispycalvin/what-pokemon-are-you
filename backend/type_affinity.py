@@ -18,7 +18,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 # Each sub-dict maps a canonicalized field value (lowercase, stripped) to
-# a {type_name: bonus} dict. Types not listed get 0.
+# a {type_name: bonus} dict. Types not listed get 0
 ENVIRONMENT_AFFINITIES: dict[str, dict[str, float]] = {
     "the ocean":      {"water": 0.09, "ice": 0.05},
     "the forest":     {"grass": 0.09, "bug": 0.06, "fairy": 0.04},
@@ -83,7 +83,7 @@ def compute_type_bonus(
             continue
         key = field_value.strip().lower()
         affinities = table.get(key, {})
-        # Sum bonuses for each type the Pokémon actually has.
+        # Sum bonuses for each type the Pokémon actually has
         for ptype in type_set:
             bonus += affinities.get(ptype, 0.0)
 

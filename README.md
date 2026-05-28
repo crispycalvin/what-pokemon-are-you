@@ -1,277 +1,182 @@
-# what-pokemon-are-you
+# What Pokémon Are You?
 
-Semantic "what Pokémon are you?" matcher. Describe yourself in plain English
-and get the Pokémon whose Pokédex vibe is closest to yours, scored by
-embedding similarity.
+You fill out a short form — describe your personality in plain English, pick a favorite color, a mood, an environment — and the app matches you to the Pokémon whose vibe is closest to yours. It does this using real semantic embeddings, not a decision tree or random quiz logic. Then an LLM writes a short explanation of *why* you got that result.
 
-> **Status:** Phase 4 complete — data pipeline, evals, FastAPI backend with
-> LLM explanations, and a Next.js + Tailwind frontend. Live deploy in Phase 5.
+Live demo: **[coming soon]**
 
-## How it works (Phase 1)
+---
 
-```
-PokeAPI ──► scripts/fetch_pokemon.py ──► data/pokemon.json
-                                            │
-                                            ▼
-                              scripts/build_index.py
-                                            │
-                                            ▼
-                              data/embeddings.npy + pokemon_names.json
-                                            │
-                                            ▼
-        User text ──► scripts/match_cli.py ──► top-N Pokémon (cosine sim)
-```
+## How it actually works
 
-Each Pokémon is reduced to a short "description blob" — flavor text + types +
-abilities + stat-derived adjectives like *fast*, *bulky*, *fragile*. Every
-blob is embedded with `all-MiniLM-L6-v2`, normalized, and stored as a single
-NumPy matrix. Matching is just a dot product against that matrix.
+The core idea is treating this like a search problem. Every Pokémon gets converted into a short personality description (using its Pokédex entries, types, abilities, and an LLM-generated vibe blurb), then embedded into a vector using `sentence-transformers`. Your input gets embedded the same way. Finding your Pokémon is just finding the nearest vector — one matrix multiplication across 1025 Pokémon.
 
-## Setup
+A few things that make the matching better than a typical quiz:
+
+- **LLM-generated personality blurbs** — raw Pokédex text talks about mechanics, not personality. Slowpoke's entry doesn't say "laid-back" — it says its tail getting chewed by Shellder triggers its evolution. So I ran every Pokémon through Groq's Llama model and had it write 2–3 sentences about each one's personality and vibe. This is what the embedding actually matches against.
+- **Hybrid scoring** — after the semantic match, type-affinity bonuses kick in based on your color/mood/environment choices. If you pick "the ocean" as your environment, water-type Pokémon get a small score boost on top of the embedding score. This stops generic Pokémon from always winning.
+- **LLM explanation** — the top match gets sent to Groq along with your description, and it writes a personalized explanation of why you got that Pokémon. This is essentially a tiny RAG (Retrieval-Augmented Generation) system.
+
+The backend is FastAPI. The frontend is Next.js + Tailwind. Everything is free to run.
+
+---
+
+## Running it locally
+
+You'll need Python 3.10+ and Node 18+.
+
+### 1. Python environment
 
 ```bash
 python -m venv .venv
+
 # Windows
 .venv\Scripts\activate
+
 # macOS / Linux
 source .venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-## Run the pipeline
+### 2. Build the Pokémon database
+
+This hits PokeAPI for every Pokémon and caches the results locally. Takes about 10 minutes the first time, then it's instant on subsequent runs because everything gets cached to `data/.cache/`.
 
 ```bash
-# 1. Pull + cache every Pokémon from PokeAPI (~5–10 min first time, instant after).
 python scripts/fetch_pokemon.py
-
-# 2. (Recommended) Enrich each Pokémon with an LLM-generated personality blurb
-#    so embedding matching has real personality vocabulary to grab onto.
-#    ~30 min on Groq free tier; output is cached + resumable.
-#    Requires GROQ_API_KEY in backend/.env (see Phase 3 setup).
-python scripts/enrich_descriptions.py
-
-# 3. Build the embedding index (~1–2 min on CPU).
-#    Automatically uses data/personalities.json if it exists, otherwise
-#    falls back to baseline blobs.
-python scripts/build_index.py
-
-# 4. Match yourself.
-python scripts/match_cli.py "I'm a quiet reader who likes rainy days and tea"
 ```
 
-Sample output:
+### 3. Generate personality descriptions (optional but recommended)
+
+This is what makes the matching actually good. For each Pokémon, it calls Groq's free API and gets back a 2–3 sentence personality description. The whole thing takes about 30 minutes and costs nothing — Groq's free tier is generous enough. The results are saved to `data/personalities.json` and the script is resumable, so if it gets interrupted just run it again.
+
+You'll need a free Groq API key from [console.groq.com](https://console.groq.com). Add it to `backend/.env`:
 
 ```
-Query: "I'm a quiet reader who likes rainy days and tea"
-
-Rank  Pokémon            Score    Types                  Flavor
-----------------------------------------------------------------------------------------------------
-1     Slowpoke           0.4123   water/psychic          Incredibly slow and dopey. It takes 5 secon...
-2     Lapras             0.3987   water/ice              A gentle soul that can read the minds of pe...
-...
+GROQ_API_KEY=your_key_here
 ```
 
-## Evaluation
-
-A hand-crafted test set in [evals/cases.jsonl](evals/cases.jsonl) maps 25
-self-descriptions to 4–7 acceptable Pokémon each. The runner re-encodes the
-whole Pokédex with each candidate model in memory (without overwriting the
-committed index) and reports top-1 / top-5 accuracy plus mean rank.
+Then run:
 
 ```bash
-# Run against the default 3-model comparison (downloads ~500MB of models on first run).
-python evals/run_evals.py
-
-# Single model, with per-case PASS/MISS output.
-python evals/run_evals.py --models sentence-transformers/all-MiniLM-L6-v2 --verbose
+python scripts/enrich_descriptions.py
 ```
 
-Results on the 25-case test set:
+### 4. Build the embedding index
 
-| Model                                    | Dim | Top-1 | Top-5 | Mean Rank | Encode Time |
-|------------------------------------------|-----|-------|-------|-----------|-------------|
-| sentence-transformers/all-MiniLM-L6-v2   | 384 | 0.200 | 0.400 |   616     |   11.5s     |
-| sentence-transformers/all-mpnet-base-v2  | 768 | 0.160 | 0.400 |   616     |   77.6s     |
-| BAAI/bge-small-en-v1.5                   | 384 | 0.160 | **0.440** | **575** |   23.2s     |
-
-**What I learned from this:**
-
-- **Bigger isn't always better.** `mpnet-base-v2` is 2x the dimensions and 7x
-  the encoding time of `MiniLM-L6-v2`, yet underperforms on top-1. For this
-  task the embedding model is not the bottleneck.
-- **`bge-small` is the Pareto pick on top-5** — same dimensions as MiniLM,
-  better recall, only 2x slower.
-- **Many "misses" are vibe-correct but not in the acceptable list.**
-  E.g. *"warm and friendly, loves making new friends"* returns Blissey
-  (literally the friendship Pokémon) but my acceptable list said Eevee/Togepi.
-  Real human-judged accuracy is closer to 60-70%.
-- **The data, not the model, is the real ceiling.** PokeAPI flavor text
-  describes *what Pokémon do*, not *their personality* — so personality-driven
-  queries match on accidental keywords (e.g. "rainy days" → Kyogre because its
-  Pokédex entry mentions creating rain clouds). v0.2 (below) fixes exactly
-  this with LLM-generated personality enrichment.
-
-## Corpus enrichment v0.2 (document expansion)
-
-The single biggest accuracy improvement: rather than swap embedding models,
-rewrite the *corpus* using an LLM so it actually contains personality vocabulary.
-
-[`scripts/enrich_descriptions.py`](scripts/enrich_descriptions.py) takes each
-Pokémon's PokeAPI record and asks Groq's `llama-3.1-8b-instant` for a 2-3
-sentence personality / vibe description focused on temperament, energy level,
-and social tendencies (explicitly *not* battle mechanics). Results are cached
-to [`data/personalities.json`](data/personalities.json) — the script is
-**resumable**, so a crash or rate-limit just picks up where it left off.
+This runs every Pokémon's description through `all-MiniLM-L6-v2` and saves the result as a NumPy matrix. Takes about 1–2 minutes on CPU.
 
 ```bash
-# One-time enrichment. Default 2s/call to stay under Groq's free 30 RPM limit.
-python scripts/enrich_descriptions.py
-
-# Rebuild the index with enriched blobs — same script, automatically picks
-# up personalities.json if present.
 python scripts/build_index.py
-
-# Re-run evals — output will report "Corpus mode: ENRICHED" up top.
-python evals/run_evals.py --models sentence-transformers/all-MiniLM-L6-v2
 ```
 
-**This is the textbook `doc2query` / document expansion pattern** — the LLM
-runs *offline* to enrich the corpus, the embedding model still does all the
-matching at query time, and per-request latency is unchanged.
+If `data/personalities.json` exists it'll use that automatically. If not, it falls back to raw Pokédex text (which still works, just with worse personality matching).
 
-## Backend (Phase 3)
+### 5. Test the CLI matcher
 
-A small FastAPI service that loads the embedding index + model **once at
-startup**, takes a free-text description, and returns the top match with a
-2-3 sentence LLM-generated explanation (Groq, free tier).
+Before spinning up the full stack, you can test the matching directly:
 
-### Run locally
+```bash
+python scripts/match_cli.py "I'm a quiet bookworm who likes rainy days and long naps"
+```
+
+You should see a ranked list of Pokémon with similarity scores.
+
+### 6. Run the backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
-cp .env.example .env   # optionally add GROQ_API_KEY for LLM explanations
+cp .env.example .env  # add your GROQ_API_KEY here
 uvicorn main:app --reload
 ```
 
-Then:
+The API will be at `http://localhost:8000`. The interactive docs are at `http://localhost:8000/docs` — you can test the `/match` endpoint right from the browser.
 
-```bash
-curl -X POST http://localhost:8000/match \
-  -H "Content-Type: application/json" \
-  -d '{"description": "I love rainy days and tea, quiet and bookish", "mood": "calm"}'
-```
+### 7. Run the frontend
 
-### Endpoints
-
-- `GET /` — health check, reports `matcher_ready` and `llm_enabled`
-- `POST /match` — body: `{description, color?, mood?, environment?}`,
-  returns `{pokemon, explanation, runners_up[], llm_enabled}`
-
-### Docker
-
-```bash
-# Build from repo root (so data/ is in the build context):
-docker build -t pokemon-backend -f backend/Dockerfile .
-docker run -p 8000:8000 -e GROQ_API_KEY=$GROQ_API_KEY pokemon-backend
-```
-
-The embedding model is **pre-downloaded at image build time**, so the first
-real request after deploy is fast (no ~80MB cold download).
-
-## Frontend (Phase 4)
-
-A Next.js 15 + Tailwind app with three views — quiz form, loading, and the
-result card — driven by a single-page state machine. Uses `recharts` for the
-base-stats radar and color-codes everything by Pokémon type.
-
-### Run locally
+In a separate terminal:
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local   # NEXT_PUBLIC_API_URL defaults to localhost:8000
+cp .env.example .env.local
 npm run dev
 ```
 
-Then open <http://localhost:3000>. The backend (Phase 3) must be running too.
+Open `http://localhost:3000`. The backend needs to be running at the same time.
 
-### Layout
+---
 
-```
-frontend/
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx       # root layout + Inter font
-│   │   ├── page.tsx         # state machine: form → loading → result
-│   │   └── globals.css
-│   ├── components/
-│   │   ├── QuizForm.tsx     # description + structured fields
-│   │   ├── PokemonResult.tsx # hero card + runners-up + try-again
-│   │   ├── StatsRadar.tsx   # recharts radar of 6 base stats
-│   │   ├── TypeBadge.tsx    # color-coded type pill
-│   │   └── LoadingSpinner.tsx # CSS-only pokéball spinner
-│   └── lib/
-│       ├── api.ts           # fetch wrapper for POST /match
-│       ├── types.ts         # mirrors backend Pydantic models
-│       └── typeColors.ts    # canonical type → hex color map
-├── tailwind.config.ts
-├── next.config.mjs          # whitelists raw.githubusercontent.com for sprites
-└── package.json
+## Evaluating the matching quality
+
+There's a hand-crafted test set at `evals/cases.jsonl` with 25 personality descriptions, each mapped to a few Pokémon that would be reasonable matches. The eval runner measures top-1 and top-5 accuracy.
+
+```bash
+# Run against the default 3-model comparison
+python evals/run_evals.py
+
+# Single model, see each case's result
+python evals/run_evals.py --models sentence-transformers/all-MiniLM-L6-v2 --verbose
 ```
 
-### Design notes
+Results on the baseline (raw Pokédex text only, no personality enrichment):
 
-- **Single page instead of two routes.** The plan called for `/` (form) +
-  `/result` but a single-page state machine is dramatically simpler — no URL
-  state passing, no router gymnastics, and "try again" is one button instead
-  of a back-nav.
-- **Color-coded type backgrounds.** The hero card uses a subtle
-  `linear-gradient(135deg, primaryTypeColor, secondaryTypeColor)` so the UI
-  feels visually distinct for every Pokémon without per-Pokémon assets.
-- **Pure-CSS pokéball spinner.** No SVG dependency, no extra animation lib.
-- **Inter via `next/font`.** Self-hosted, no external CSS request, no FOIT.
+| Model | Dim | Top-1 | Top-5 | Encode Time |
+|---|---|---|---|---|
+| all-MiniLM-L6-v2 | 384 | 20% | 40% | 11.5s |
+| all-mpnet-base-v2 | 768 | 16% | 40% | 77.6s |
+| BAAI/bge-small-en-v1.5 | 384 | 16% | 44% | 23.2s |
 
-## Layout
+The numbers look low, but two things are worth knowing. First, a lot of the "misses" are actually vibe-correct — the eval uses exact Pokémon name matching, so `meloetta-aria` counts as wrong even though it's the same Pokémon as `meloetta`. Second, the bigger model (`mpnet-base-v2`) is 7× slower and actually *worse* on top-1, which is a useful real finding: the bottleneck was the corpus data, not the model.
+
+After running the personality enrichment, qualitative results improve noticeably — "playful trickster" now returns Whimsicott (whose ability is literally called "Prankster"), "loyal protector" returns Growlithe, "loves the ocean" returns water types. The strict-name eval doesn't fully capture this because the acceptable lists are too narrow, but it's noticeably better in practice.
+
+---
+
+## Project structure
 
 ```
 what-pokemon-are-you/
 ├── scripts/
-│   ├── fetch_pokemon.py        # PokeAPI → data/pokemon.json (with per-request cache)
-│   ├── enrich_descriptions.py  # Groq → data/personalities.json (LLM corpus enrichment)
-│   ├── build_index.py          # sentence-transformers → data/embeddings.npy
-│   └── match_cli.py            # cosine similarity CLI matcher
+│   ├── fetch_pokemon.py        # pulls all Pokémon from PokeAPI, caches locally
+│   ├── enrich_descriptions.py  # generates personality blurbs via Groq (one-time)
+│   ├── build_index.py          # embeds all descriptions, saves embeddings.npy
+│   └── match_cli.py            # test the matcher from the command line
 ├── evals/
-│   ├── cases.jsonl         # hand-crafted {description, acceptable[]} test set
-│   └── run_evals.py        # top-1 / top-5 accuracy across one or more models
+│   ├── cases.jsonl             # 25 hand-written test cases
+│   └── run_evals.py            # measures top-1 / top-5 accuracy per model
 ├── backend/
-│   ├── main.py             # FastAPI app: POST /match, lifespan-loaded model
-│   ├── matcher.py          # PokemonMatcher: NumPy cosine sim over embeddings.npy
-│   ├── explainer.py        # Groq LLM wrapper with deterministic fallback
+│   ├── main.py                 # FastAPI app, loads everything once at startup
+│   ├── matcher.py              # the actual matching logic (embeddings + type boosts)
+│   ├── explainer.py            # calls Groq to generate the "why you got this Pokémon" text
+│   ├── type_affinity.py        # maps environment/color/mood → type score bonuses
 │   ├── requirements.txt
-│   ├── Dockerfile          # ships data/ + pre-downloaded embedding model
+│   ├── Dockerfile
 │   └── .env.example
-├── frontend/               # Next.js 15 + Tailwind + recharts UI
-│   └── src/{app,components,lib}/
-├── data/                   # generated; safe to commit pokemon.json + embeddings.npy
-├── requirements.txt
+├── frontend/
+│   └── src/
+│       ├── app/                # Next.js App Router pages
+│       ├── components/         # QuizForm, PokemonResult, StatsRadar, TypeBadge, etc.
+│       └── lib/                # API client, types, type color map
+├── data/                       # generated files (safe to commit)
+│   ├── pokemon.json            # cached Pokémon records from PokeAPI
+│   ├── personalities.json      # LLM-generated personality blurbs
+│   └── embeddings.npy          # the embedding matrix (~1.5MB)
+├── requirements.txt            # top-level Python deps for scripts + evals
 └── .gitignore
 ```
 
-## Design notes
+---
 
-- **No vector DB.** With ~1000 Pokémon a NumPy matmul is faster than any
-  hosted vector store and adds zero infrastructure.
-- **Local embeddings.** `all-MiniLM-L6-v2` is free, runs on CPU, and produces
-  reproducible vectors so the index can be rebuilt in CI.
-- **PokeAPI cache.** Each API response is cached to `data/.cache/` so reruns
-  cost nothing and the script is offline-safe after the first run.
-- **Model loaded once at startup.** FastAPI lifespan loads sentence-transformers
-  + the embedding matrix on boot, so per-request latency is just one query
-  encode + a dot product + the LLM call.
-- **LLM as explainer, not matcher.** Embedding similarity does the matching;
-  Groq only narrates the result. This avoids hallucinated matches and keeps
-  the system honest about *why* it picked what it picked.
-- **Graceful LLM degradation.** If `GROQ_API_KEY` isn't set, the backend
-  returns a deterministic flavor-text-based explanation instead of failing.
+## Technical decisions worth noting
+
+**No vector database.** With 1025 Pokémon, a vector DB adds deployment complexity for zero performance gain. `embeddings @ query_vec` in NumPy finishes in under a millisecond.
+
+**Hybrid scoring instead of pure embedding.** Pure semantic similarity has a hubness problem — generic Pokémon like Kecleon ("adapts to any environment") end up near the center of the embedding space and match too many queries. Adding small type-affinity bonuses for color/mood/environment pushes the result toward appropriately typed Pokémon when the structured fields are filled in.
+
+**LLM for writing, not for matching.** The LLM runs in two places: once offline to write personality descriptions for the corpus, and once per request to narrate the result. It never makes the actual matching decision — that's entirely the embedding similarity. This keeps the system grounded and fast.
+
+**Model loads once at startup.** The `sentence-transformers` model and the embedding matrix both load when the FastAPI server starts, not per request. A cold start takes a few seconds; after that each match takes about 50ms for the embedding + 1ms for the matrix multiply.
+
+**Groq for the free LLM tier.** Claude and GPT APIs cost money per call. Groq's free tier gives ~14,000 requests/day, which is more than enough for a demo. If `GROQ_API_KEY` isn't set, the backend falls back to returning the Pokémon's raw Pokédex entry as the explanation instead of failing.

@@ -14,7 +14,7 @@ interface StatsRadarProps {
   color: string;
 }
 
-// Canonical order + display labels for the six base stats every Pokémon has.
+// Canonical order + display labels for the six base stats every Pokémon has
 const STAT_ORDER: Array<{ key: string; label: string }> = [
   { key: "hp", label: "HP" },
   { key: "attack", label: "ATK" },
@@ -25,7 +25,7 @@ const STAT_ORDER: Array<{ key: string; label: string }> = [
 ];
 
 // Radar chart of base stats normalized to a 0-200 scale (covers all but extreme
-// outliers, keeps the chart readable across legendaries and starters alike).
+// outliers, keeps the chart readable across legendaries and starters alike)
 export function StatsRadar({ stats, color }: StatsRadarProps) {
   const data = STAT_ORDER.map(({ key, label }) => ({
     stat: label,

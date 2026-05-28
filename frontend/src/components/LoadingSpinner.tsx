@@ -1,5 +1,5 @@
 // Pokéball-themed spinner used during the /match request. Pure CSS, no SVG
-// dependencies — keeps the loading state lightweight.
+// dependencies — keeps the loading state lightweight
 export function LoadingSpinner({ message = "Consulting the Pokédex..." }: { message?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-6 py-12">

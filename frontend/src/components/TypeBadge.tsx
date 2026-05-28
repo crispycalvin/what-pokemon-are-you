@@ -4,7 +4,7 @@ interface TypeBadgeProps {
   type: string;
 }
 
-// Small color-coded pill for a single Pokémon type.
+// Small color-coded pill for a single Pokémon type
 export function TypeBadge({ type }: TypeBadgeProps) {
   return (
     <span

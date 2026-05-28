@@ -17,7 +17,7 @@ from groq import Groq
 
 logger = logging.getLogger(__name__)
 
-# Llama-3.1 8b on Groq: fast, free tier, plenty smart for a 2-3 sentence blurb.
+# Llama-3.1 8b on Groq: fast, free tier, plenty smart for a 2-3 sentence blurb
 DEFAULT_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 SYSTEM_PROMPT = (
@@ -35,7 +35,7 @@ class Explainer:
 
     def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL) -> None:
         self.model = model
-        # Only construct a client if we actually have credentials.
+        # Only construct a client if we actually have credentials
         key = api_key or os.getenv("GROQ_API_KEY")
         self._client: Groq | None = Groq(api_key=key) if key else None
         if self._client is None:
@@ -45,7 +45,7 @@ class Explainer:
 
     @property
     def llm_enabled(self) -> bool:
-        # Surfaced so callers / health checks can see whether real LLM calls are happening.
+        # Surfaced so callers / health checks can see whether real LLM calls are happening
         return self._client is not None
 
     # ------------------------------------------------------------------
@@ -55,7 +55,7 @@ class Explainer:
     @staticmethod
     def _user_prompt(user_description: str, pokemon: dict[str, Any]) -> str:
         # Stuff the Pokémon's full context into the user message so the LLM
-        # can ground its reasoning without a separate retrieval step.
+        # can ground its reasoning without a separate retrieval step
         types = ", ".join(pokemon.get("types", []))
         abilities = ", ".join(pokemon.get("abilities", []))
         flavor = pokemon.get("flavor_text", "").strip() or "(no Pokédex entry available)"
@@ -75,7 +75,7 @@ class Explainer:
     # ------------------------------------------------------------------
 
     def explain(self, user_description: str, pokemon: dict[str, Any]) -> str:
-        # No API key → use the deterministic fallback.
+        # No API key → use the deterministic fallback
         if self._client is None:
             return self._fallback(user_description, pokemon)
 
@@ -92,7 +92,7 @@ class Explainer:
             content = response.choices[0].message.content
             return (content or "").strip() or self._fallback(user_description, pokemon)
         except Exception as exc:
-            # Network blip, rate limit, etc. — don't break the user's request.
+            # Network blip, rate limit, etc. — don't break the user's request
             logger.exception("Groq call failed; using fallback explanation. %s", exc)
             return self._fallback(user_description, pokemon)
 
@@ -102,7 +102,7 @@ class Explainer:
 
     @staticmethod
     def _fallback(user_description: str, pokemon: dict[str, Any]) -> str:
-        # Plain-text explanation derived from the matched Pokémon's own Pokédex entry.
+        # Plain-text explanation derived from the matched Pokémon's own Pokédex entry
         name = pokemon.get("name", "your match").replace("-", " ").title()
         types = " / ".join(pokemon.get("types", [])) or "mysterious"
         flavor = pokemon.get("flavor_text", "").strip()

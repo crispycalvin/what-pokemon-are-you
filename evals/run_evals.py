@@ -34,17 +34,17 @@ from sentence_transformers import SentenceTransformer
 # Re-use the canonical blob-builder so evals stay in sync with build_index.py.
 # Importing build_all_blobs (rather than the lower-level builder) means evals
 # automatically pick up LLM-enriched personalities when data/personalities.json
-# exists, so the metrics reflect what's actually in production.
+# exists, so the metrics reflect what's actually in production
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from build_index import build_all_blobs, load_personalities  # noqa: E402
 
-# Project paths.
+# Project paths
 DATA_DIR = ROOT / "data"
 POKEMON_FILE = DATA_DIR / "pokemon.json"
 CASES_FILE = ROOT / "evals" / "cases.jsonl"
 
-# Models to compare by default — small / medium / strong-small triplet.
+# Models to compare by default — small / medium / strong-small triplet
 DEFAULT_MODELS = [
     "sentence-transformers/all-MiniLM-L6-v2",
     "sentence-transformers/all-mpnet-base-v2",
@@ -92,8 +92,8 @@ def evaluate_model(
     print(f"\n=== Evaluating: {model_name} ===")
     model = SentenceTransformer(model_name)
 
-    # Build the per-model index in memory (don't touch data/embeddings.npy).
-    # build_all_blobs() automatically incorporates personalities.json if present.
+    # Build the per-model index in memory (don't touch data/embeddings.npy)
+    # build_all_blobs() automatically incorporates personalities.json if present
     names = [r["name"] for r in records]
     blobs = build_all_blobs(records)
 
@@ -107,7 +107,7 @@ def evaluate_model(
     ).astype(np.float32)
     encode_time = time.time() - start
 
-    # Run each case and collect rank of the first acceptable hit.
+    # Run each case and collect rank of the first acceptable hit
     top1_hits = 0
     topk_hits = 0
     ranks: list[int] = []
@@ -116,7 +116,7 @@ def evaluate_model(
         query = case["description"]
         acceptable = {name.lower() for name in case["acceptable"]}
 
-        # Encode the query with the same model + normalization as the index.
+        # Encode the query with the same model + normalization as the index
         query_vec = model.encode(
             [query],
             normalize_embeddings=True,
@@ -124,7 +124,7 @@ def evaluate_model(
         )[0].astype(np.float32)
 
         scores = embeddings @ query_vec
-        # Sort top_n descending for ranked inspection.
+        # Sort top_n descending for ranked inspection
         top_indices = np.argpartition(-scores, kth=min(top_n, len(scores) - 1))[:top_n]
         top_indices = top_indices[np.argsort(-scores[top_indices])]
         ranked_names = [names[i] for i in top_indices]
@@ -135,7 +135,7 @@ def evaluate_model(
         top1_hits += int(is_top1)
         topk_hits += int(is_topk)
 
-        # Rank of best acceptable hit (1-based); missing → len(records) as a stand-in.
+        # Rank of best acceptable hit (1-based); missing → len(records) as a stand-in
         rank = next(
             (i + 1 for i, name in enumerate(ranked_names) if name in acceptable),
             len(records),
@@ -209,7 +209,7 @@ def main() -> None:
     cases = load_cases()
     print(f"Loaded {len(records)} Pokémon and {len(cases)} eval cases.")
 
-    # Make it obvious which corpus flavor the eval is measuring.
+    # Make it obvious which corpus flavor the eval is measuring
     personalities = load_personalities()
     if personalities:
         print(f"Corpus mode: ENRICHED (using {len(personalities)} LLM-generated personalities).")

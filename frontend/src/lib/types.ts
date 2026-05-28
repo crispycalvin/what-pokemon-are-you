@@ -1,5 +1,5 @@
 // TypeScript mirror of the backend's Pydantic models. Keep in sync with
-// backend/main.py (MatchRequest / MatchResponse / PokemonResult).
+// backend/main.py (MatchRequest / MatchResponse / PokemonResult)
 
 export interface MatchRequest {
   description: string;
@@ -24,5 +24,5 @@ export interface MatchResponse {
   llm_enabled: boolean;
 }
 
-// View states for the main page state machine.
+// View states for the main page state machine
 export type ViewState = "form" | "loading" | "result" | "error";

@@ -1,5 +1,5 @@
 // Canonical Pokémon type → color mapping. Hex values match the long-standing
-// community palette used on Bulbapedia / official media.
+// community palette used on Bulbapedia / official media
 
 export const TYPE_COLORS: Record<string, string> = {
   normal: "#A8A878",
@@ -22,7 +22,7 @@ export const TYPE_COLORS: Record<string, string> = {
   fairy: "#EE99AC",
 };
 
-// Fallback for unknown types (e.g. typos, future generations).
+// Fallback for unknown types (e.g. typos, future generations)
 const FALLBACK_COLOR = "#68A090";
 
 export function typeColor(type: string): string {
@@ -30,7 +30,7 @@ export function typeColor(type: string): string {
 }
 
 // Returns a CSS gradient string keyed off the Pokémon's primary (and optional
-// secondary) types. Used as a soft background behind the sprite.
+// secondary) types. Used as a soft background behind the sprite
 export function typeGradient(types: string[]): string {
   if (types.length === 0) return `linear-gradient(135deg, #e5e7eb, #f3f4f6)`;
   const primary = typeColor(types[0]);

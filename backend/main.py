@@ -20,13 +20,13 @@ from pydantic import BaseModel, Field
 from explainer import Explainer
 from matcher import PokemonMatcher
 
-# Pick up .env automatically in local dev. Production envs (Railway) inject vars directly.
+# Pick up .env automatically in local dev. Production envs (Railway) inject vars directly
 load_dotenv()
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
-# Comma-separated list of allowed CORS origins; defaults are local dev hosts.
+# Comma-separated list of allowed CORS origins; defaults are local dev hosts
 _DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()]
 
@@ -37,7 +37,7 @@ ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIG
 
 class MatchRequest(BaseModel):
     # Free-text description is the only required field; the rest are optional
-    # structured signals that get folded into the same query blob.
+    # structured signals that get folded into the same query blob
     description: str = Field(..., min_length=3, max_length=1000)
     color: str | None = Field(default=None, max_length=50)
     mood: str | None = Field(default=None, max_length=100)
@@ -64,14 +64,14 @@ class MatchResponse(BaseModel):
 # App + lifespan (one-time model/index loading)
 # ---------------------------------------------------------------------------
 
-# Globals populated by the lifespan handler — keeps endpoint code clean.
+# Globals populated by the lifespan handler — keeps endpoint code clean
 matcher: PokemonMatcher | None = None
 explainer: Explainer | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Runs once at startup: load embeddings + model + LLM client.
+    # Runs once at startup: load embeddings + model + LLM client
     global matcher, explainer
 
     logger.info("Loading matcher (embeddings + sentence-transformers model)...")
@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
     logger.info("Explainer ready (llm_enabled=%s).", explainer.llm_enabled)
 
     yield
-    # No teardown needed; OS reclaims memory on shutdown.
+    # No teardown needed; OS reclaims memory on shutdown
 
 
 app = FastAPI(
@@ -92,7 +92,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS for the Next.js frontend (localhost in dev, Vercel URL in prod).
+# CORS for the Next.js frontend (localhost in dev, Vercel URL in prod)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -108,7 +108,7 @@ app.add_middleware(
 
 def _build_query_blob(req: MatchRequest) -> str:
     # Compose structured fields into the same natural-language style as the
-    # description blobs so the embedding model treats them consistently.
+    # description blobs so the embedding model treats them consistently
     parts = [req.description.strip()]
     if req.color:
         parts.append(f"My favorite color is {req.color.strip()}.")
@@ -120,7 +120,7 @@ def _build_query_blob(req: MatchRequest) -> str:
 
 
 def _to_result(record: dict[str, Any], score: float) -> PokemonResult:
-    # Trim the raw record to just the fields the frontend needs.
+    # Trim the raw record to just the fields the frontend needs
     return PokemonResult(
         id=record["id"],
         name=record["name"],
@@ -137,7 +137,7 @@ def _to_result(record: dict[str, Any], score: float) -> PokemonResult:
 
 @app.get("/")
 def root() -> dict[str, Any]:
-    # Lightweight health-check that doubles as the home route on Railway.
+    # Lightweight health-check that doubles as the home route on Railway
     return {
         "service": "what-pokemon-are-you",
         "status": "ok",
@@ -149,12 +149,12 @@ def root() -> dict[str, Any]:
 @app.post("/match", response_model=MatchResponse)
 def match(req: MatchRequest) -> MatchResponse:
     if matcher is None or explainer is None:
-        # Should be impossible once lifespan has run, but fail loudly if so.
+        # Should be impossible once lifespan has run, but fail loudly if so
         raise HTTPException(status_code=503, detail="Service still warming up.")
 
     query = _build_query_blob(req)
     # Pass structured fields separately so the matcher can apply type-affinity
-    # bonuses on top of the semantic score (hybrid retrieval).
+    # bonuses on top of the semantic score (hybrid retrieval)
     matches = matcher.find_top_n(
         query,
         n=5,
@@ -165,7 +165,7 @@ def match(req: MatchRequest) -> MatchResponse:
     if not matches:
         raise HTTPException(status_code=500, detail="No matches found.")
 
-    # Top match drives the explanation; the rest go in `runners_up` for UI flair.
+    # Top match drives the explanation; the rest go in `runners_up` for UI flair
     top = matches[0]
     explanation = explainer.explain(req.description, top.record)
 

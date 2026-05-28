@@ -12,7 +12,7 @@ interface PokemonResultProps {
   onReset: () => void;
 }
 
-// Title-case a Pokémon name (handles hyphenated forms like "mr-mime").
+// Title-case a Pokémon name (handles hyphenated forms like "mr-mime")
 function prettyName(name: string): string {
   return name
     .split("-")
@@ -21,7 +21,7 @@ function prettyName(name: string): string {
 }
 
 // Top-level result view: hero card with the matched Pokémon + explanation,
-// then a row of runners-up underneath.
+// then a row of runners-up underneath
 export function PokemonResult({ result, onReset }: PokemonResultProps) {
   const { pokemon, explanation, runners_up, llm_enabled } = result;
   const primaryColor = typeColor(pokemon.types[0] ?? "normal");

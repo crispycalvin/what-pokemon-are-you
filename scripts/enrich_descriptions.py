@@ -34,23 +34,23 @@ from dotenv import load_dotenv
 from groq import Groq, RateLimitError
 from tqdm import tqdm
 
-# Project paths.
+# Project paths
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 POKEMON_FILE = DATA_DIR / "pokemon.json"
 OUTPUT_FILE = DATA_DIR / "personalities.json"
 
-# Groq config — same fast/free model used by the runtime explainer.
+# Groq config — same fast/free model used by the runtime explainer
 DEFAULT_MODEL = "llama-3.1-8b-instant"
 
 # Default pacing: 2s between calls keeps us comfortably under the free-tier
-# 30 RPM limit. Lower with --delay if you have a paid account.
+# 30 RPM limit. Lower with --delay if you have a paid account
 DEFAULT_DELAY_S = 2.0
 
-# Persist progress every N successful generations.
+# Persist progress every N successful generations
 SAVE_EVERY = 25
 
-# Per-call retry budget for rate limits / transient errors.
+# Per-call retry budget for rate limits / transient errors
 MAX_RETRIES = 4
 
 
@@ -74,7 +74,7 @@ SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 
 def _user_prompt(record: dict[str, Any]) -> str:
-    # Pack the canonical fields the LLM needs into a single user message.
+    # Pack the canonical fields the LLM needs into a single user message
     name = record["name"].replace("-", " ").title()
     types = ", ".join(record.get("types", []))
     abilities = ", ".join(record.get("abilities", []))
@@ -98,7 +98,7 @@ def generate_personality(
     record: dict[str, Any],
     model: str,
 ) -> str | None:
-    # Returns the LLM-generated personality string, or None if every retry fails.
+    # Returns the LLM-generated personality string, or None if every retry fails
     prompt = _user_prompt(record)
 
     for attempt in range(MAX_RETRIES):
@@ -116,13 +116,13 @@ def generate_personality(
             return (content or "").strip() or None
 
         except RateLimitError:
-            # Exponential backoff on rate-limit errors specifically.
+            # Exponential backoff on rate-limit errors specifically
             wait = 2 ** (attempt + 1)
             tqdm.write(f"  rate-limited, sleeping {wait}s before retry...")
             time.sleep(wait)
 
         except Exception as exc:
-            # Transient network / API blip — short sleep + retry.
+            # Transient network / API blip — short sleep + retry
             tqdm.write(f"  error ({exc}), retrying in 3s...")
             time.sleep(3)
 
@@ -134,7 +134,7 @@ def generate_personality(
 # ---------------------------------------------------------------------------
 
 def save_atomic(data: dict[str, str], path: Path) -> None:
-    # Write to a temp file then rename so a crash mid-write can't corrupt the cache.
+    # Write to a temp file then rename so a crash mid-write can't corrupt the cache
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -168,7 +168,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Load GROQ_API_KEY from backend/.env (the canonical place we keep it).
+    # Load GROQ_API_KEY from backend/.env (the canonical place we keep it)
     load_dotenv(ROOT / "backend" / ".env")
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -178,20 +178,20 @@ def main() -> None:
         )
     client = Groq(api_key=api_key)
 
-    # Load source records.
+    # Load source records
     if not POKEMON_FILE.exists():
         sys.exit(f"{POKEMON_FILE} not found. Run scripts/fetch_pokemon.py first.")
     with POKEMON_FILE.open("r", encoding="utf-8") as fh:
         records: list[dict[str, Any]] = json.load(fh)
 
-    # Resume from any existing cache so re-runs only fill the gaps.
+    # Resume from any existing cache so re-runs only fill the gaps
     personalities: dict[str, str] = {}
     if OUTPUT_FILE.exists():
         with OUTPUT_FILE.open("r", encoding="utf-8") as fh:
             personalities = json.load(fh)
         print(f"Loaded {len(personalities)} cached personalities — skipping those.")
 
-    # Work queue = records that are not yet in the cache.
+    # Work queue = records that are not yet in the cache
     pending = [r for r in records if r["name"] not in personalities]
     if args.limit is not None:
         pending = pending[: args.limit]
@@ -206,7 +206,7 @@ def main() -> None:
         f"at ~{args.delay}s/call. Estimated wall time: {estimated_min:.1f} min."
     )
 
-    # Main enrichment loop.
+    # Main enrichment loop
     successes = 0
     for i, record in enumerate(tqdm(pending, desc="Enriching"), start=1):
         personality = generate_personality(client, record, model=args.model)
@@ -216,11 +216,11 @@ def main() -> None:
         else:
             tqdm.write(f"  ✗ skipped {record['name']} after retries")
 
-        # Periodic checkpoint so a crash loses at most SAVE_EVERY entries.
+        # Periodic checkpoint so a crash loses at most SAVE_EVERY entries
         if i % SAVE_EVERY == 0:
             save_atomic(personalities, OUTPUT_FILE)
 
-        # Polite delay between calls.
+        # Polite delay between calls
         time.sleep(args.delay)
 
     save_atomic(personalities, OUTPUT_FILE)

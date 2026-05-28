@@ -8,9 +8,9 @@ import { QuizForm } from "@/components/QuizForm";
 import { matchPokemon } from "@/lib/api";
 import type { MatchRequest, MatchResponse, ViewState } from "@/lib/types";
 
-// Single-page state machine: form → loading → (result | error) → back to form.
+// Single-page state machine: form → loading → (result | error) → back to form
 // Simpler + better UX than a multi-route app for a quiz that needs the form
-// state alongside the result.
+// state alongside the result
 export default function Home() {
   const [view, setView] = useState<ViewState>("form");
   const [result, setResult] = useState<MatchResponse | null>(null);

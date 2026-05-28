@@ -20,19 +20,19 @@ from typing import Any
 import requests
 from tqdm import tqdm
 
-# Project paths (script lives in scripts/, data lives in ../data/).
+# Project paths (script lives in scripts/, data lives in ../data/)
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 CACHE_DIR = DATA_DIR / ".cache"
 OUTPUT_FILE = DATA_DIR / "pokemon.json"
 
-# PokeAPI endpoints.
+# PokeAPI endpoints
 POKEAPI_BASE = "https://pokeapi.co/api/v2"
 POKEMON_URL = POKEAPI_BASE + "/pokemon/{id}"
 SPECIES_URL = POKEAPI_BASE + "/pokemon-species/{id}"
 
-# Hard cap on how many Pokémon to fetch (PokeAPI exposes ~1025 as of 2026).
-# Set high enough to grab everything; the loop short-circuits on 404.
+# Hard cap on how many Pokémon to fetch (PokeAPI exposes ~1025 as of 2026)
+# Set high enough to grab everything; the loop short-circuits on 404
 MAX_POKEMON_ID = 1025
 
 # Be polite to the free public API to not overload the server
@@ -45,18 +45,18 @@ RETRY_BACKOFF_S = 2.0
 # ---------------------------------------------------------------------------
 
 def _cache_path(key: str) -> Path:
-    # Each cached JSON response gets its own file keyed by endpoint slug.
+    # Each cached JSON response gets its own file keyed by endpoint slug
     return CACHE_DIR / f"{key}.json"
 
 
 def _get_json(url: str, cache_key: str) -> dict[str, Any] | None:
-    # Return cached response if we've already fetched this URL.
+    # Return cached response if we've already fetched this URL
     cache_file = _cache_path(cache_key)
     if cache_file.exists():
         with cache_file.open("r", encoding="utf-8") as fh:
             return json.load(fh)
 
-    # Live fetch with a single retry on transient errors.
+    # Live fetch with a single retry on transient errors
     for attempt in range(2):
         try:
             response = requests.get(url, timeout=REQUEST_TIMEOUT_S)
@@ -70,13 +70,13 @@ def _get_json(url: str, cache_key: str) -> dict[str, Any] | None:
             return None
         if response.status_code == 200:
             payload = response.json()
-            # Persist to cache so future runs are instant + offline-capable.
+            # Persist to cache so future runs are instant + offline-capable
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             with cache_file.open("w", encoding="utf-8") as fh:
                 json.dump(payload, fh)
             return payload
 
-        # Transient (5xx / rate limit) — back off once then retry.
+        # Transient (5xx / rate limit) — back off once then retry
         if attempt == 0:
             time.sleep(RETRY_BACKOFF_S)
             continue
@@ -90,8 +90,8 @@ def _get_json(url: str, cache_key: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 def _extract_english_flavor_text(species: dict[str, Any]) -> str:
-    # Species returns a list of flavor texts across games/languages.
-    # Grab the first English entry and clean up control chars PokeAPI ships.
+    # Species returns a list of flavor texts across games/languages
+    # Grab the first English entry and clean up control chars PokeAPI ships
     for entry in species.get("flavor_text_entries", []):
         language = entry.get("language", {}).get("name")
         if language == "en":
@@ -102,7 +102,7 @@ def _extract_english_flavor_text(species: dict[str, Any]) -> str:
 
 def _stat_adjectives(stats: dict[str, int]) -> list[str]:
     # Convert base stats into rough adjectives so embeddings have something
-    # human-readable to grab onto beyond raw numbers.
+    # human-readable to grab onto beyond raw numbers
     adjectives: list[str] = []
 
     if stats.get("speed", 0) >= 100:
@@ -125,7 +125,7 @@ def _stat_adjectives(stats: dict[str, int]) -> list[str]:
 
 
 def _build_record(pokemon: dict[str, Any], species: dict[str, Any]) -> dict[str, Any]:
-    # Flatten the two API payloads into the slim shape we need downstream.
+    # Flatten the two API payloads into the slim shape we need downstream
     stats = {s["stat"]["name"]: s["base_stat"] for s in pokemon.get("stats", [])}
     types = [t["type"]["name"] for t in pokemon.get("types", [])]
     abilities = [a["ability"]["name"].replace("-", " ") for a in pokemon.get("abilities", [])]
@@ -156,11 +156,11 @@ def main() -> None:
 
     records: list[dict[str, Any]] = []
 
-    # Walk Pokédex IDs sequentially. PokeAPI is stable + paginated by ID.
+    # Walk Pokédex IDs sequentially. PokeAPI is stable + paginated by ID
     for pokemon_id in tqdm(range(1, MAX_POKEMON_ID + 1), desc="Fetching Pokémon"):
         pokemon = _get_json(POKEMON_URL.format(id=pokemon_id), f"pokemon-{pokemon_id}")
         if pokemon is None:
-            # Past the end of the live Pokédex — stop cleanly.
+            # Past the end of the live Pokédex — stop cleanly
             break
 
         species = _get_json(SPECIES_URL.format(id=pokemon_id), f"species-{pokemon_id}")
@@ -169,7 +169,7 @@ def main() -> None:
 
         records.append(_build_record(pokemon, species))
 
-    # Write the consolidated dataset that downstream scripts consume.
+    # Write the consolidated dataset that downstream scripts consume
     with OUTPUT_FILE.open("w", encoding="utf-8") as fh:
         json.dump(records, fh, indent=2)
 

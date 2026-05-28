@@ -10,7 +10,7 @@ interface QuizFormProps {
 }
 
 // All dropdown options are displayed capitalized and sent lowercase so the
-// backend's type_affinity table matches without any casing logic on the frontend.
+// backend's type_affinity table matches without any casing logic on the frontend
 const COLORS = [
   "Red", "Blue", "Green", "Yellow", "Purple",
   "Pink", "Black", "White", "Brown", "Orange", "Grey",
@@ -27,7 +27,7 @@ const ENVIRONMENTS = [
 ];
 
 export function QuizForm({ onSubmit, disabled = false }: QuizFormProps) {
-  // Single piece of form state keyed by field name. Simpler than 4 useState calls.
+  // Single piece of form state keyed by field name. Simpler than 4 useState calls
   const [form, setForm] = useState<MatchRequest>({
     description: "",
     color: "",
@@ -35,13 +35,13 @@ export function QuizForm({ onSubmit, disabled = false }: QuizFormProps) {
     environment: "",
   });
 
-  // Bare minimum validation: backend already enforces 3-1000 chars, just match it.
+  // Bare minimum validation: backend already enforces 3-1000 chars, just match it
   const canSubmit = form.description.trim().length >= 3 && !disabled;
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
-    // Strip empty optional fields so the request body stays clean.
+    // Strip empty optional fields so the request body stays clean
     const payload: MatchRequest = { description: form.description.trim() };
     if (form.color?.trim()) payload.color = form.color.trim();
     if (form.mood?.trim()) payload.mood = form.mood.trim();

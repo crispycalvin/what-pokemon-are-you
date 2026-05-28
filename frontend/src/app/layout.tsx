@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Lilita_One } from "next/font/google";
 import "./globals.css";
 
-// Inter for body text — clean, readable, self-hosted.
+// Inter for body text — clean, readable, self-hosted
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 // Lilita One for the Pokémon-style hero title. Chunky, rounded letterforms
-// that closely echo the official Pokémon logo lettering.
+// that closely echo the official Pokémon logo lettering
 const lilitaOne = Lilita_One({
   subsets: ["latin"],
   weight: "400",

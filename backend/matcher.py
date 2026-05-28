@@ -27,11 +27,11 @@ from sentence_transformers import SentenceTransformer
 
 from type_affinity import compute_type_bonus
 
-# Default data dir resolves to <repo>/data when running locally.
-# Docker overrides via DATA_DIR env var.
+# Default data dir resolves to <repo>/data when running locally
+# Docker overrides via DATA_DIR env var
 _DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# Must match scripts/build_index.py for similarity scores to be meaningful.
+# Must match scripts/build_index.py for similarity scores to be meaningful
 DEFAULT_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
 
@@ -54,7 +54,7 @@ class PokemonMatcher:
         self.data_dir = Path(data_dir or os.getenv("DATA_DIR") or _DEFAULT_DATA_DIR)
         self.model_name = model_name
 
-        # Lazy-loaded so __init__ stays cheap; call `load()` from FastAPI lifespan.
+        # Lazy-loaded so __init__ stays cheap; call `load()` from FastAPI lifespan
         self._model: SentenceTransformer | None = None
         self._embeddings: np.ndarray | None = None
         self._records: list[dict[str, Any]] = []
@@ -65,7 +65,7 @@ class PokemonMatcher:
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        # Reads index + records from disk and warms up the embedding model.
+        # Reads index + records from disk and warms up the embedding model
         embeddings_path = self.data_dir / "embeddings.npy"
         pokemon_path = self.data_dir / "pokemon.json"
         names_path = self.data_dir / "pokemon_names.json"
@@ -76,7 +76,7 @@ class PokemonMatcher:
                     f"Missing {required}. Run fetch_pokemon.py + build_index.py."
                 )
 
-        # Pre-normalized vectors: cosine similarity collapses to a dot product.
+        # Pre-normalized vectors: cosine similarity collapses to a dot product
         self._embeddings = np.load(embeddings_path)
 
         with pokemon_path.open("r", encoding="utf-8") as fh:
@@ -84,17 +84,17 @@ class PokemonMatcher:
         with names_path.open("r", encoding="utf-8") as fh:
             names: list[str] = json.load(fh)
 
-        # Reorder records to match the embedding row order (row i ↔ names[i]).
+        # Reorder records to match the embedding row order (row i ↔ names[i])
         by_name = {record["name"]: record for record in self._records}
         self._records = [by_name[name] for name in names]
         self._name_to_record = by_name
 
-        # Load the sentence-transformers model into memory.
+        # Load the sentence-transformers model into memory
         self._model = SentenceTransformer(self.model_name)
 
     @property
     def ready(self) -> bool:
-        # True once load() has finished successfully.
+        # True once load() has finished successfully
         return self._model is not None and self._embeddings is not None
 
     # ------------------------------------------------------------------
@@ -103,7 +103,7 @@ class PokemonMatcher:
 
     # How many candidates to pull from cosine-sim before re-ranking with
     # type bonuses. Large enough to give the boost room to surface the right
-    # Pokémon; small enough to stay fast (still just a list comprehension).
+    # Pokémon; small enough to stay fast (still just a list comprehension)
     _CANDIDATE_POOL = 50
 
     def find_top_n(
@@ -119,23 +119,23 @@ class PokemonMatcher:
             raise RuntimeError("Matcher not loaded. Call load() first.")
 
         # --- Stage 1: semantic retrieval ---
-        # Encode the query with the same normalization as the index.
+        # Encode the query with the same normalization as the index
         query_vec = self._model.encode(
             [query],
             normalize_embeddings=True,
             convert_to_numpy=True,
         )[0].astype(np.float32)
 
-        # Cosine similarity over the whole index in one matmul (~1ms).
+        # Cosine similarity over the whole index in one matmul (~1ms)
         cosine_scores = self._embeddings @ query_vec
 
         # Pull a wider candidate pool so the re-ranking step has room to
-        # surface a better-typed Pokémon that narrowly missed the top-N.
+        # surface a better-typed Pokémon that narrowly missed the top-N
         pool_size = min(self._CANDIDATE_POOL, len(cosine_scores))
         pool_indices = np.argpartition(-cosine_scores, kth=pool_size - 1)[:pool_size]
 
         # --- Stage 2: hybrid re-ranking with type-affinity bonuses ---
-        # For each candidate, add structured-field type bonuses to the cosine score.
+        # For each candidate, add structured-field type bonuses to the cosine score
         hybrid_scores: list[tuple[float, int]] = []
         for i in pool_indices:
             record = self._records[i]
@@ -147,7 +147,7 @@ class PokemonMatcher:
             )
             hybrid_scores.append((float(cosine_scores[i]) + bonus, int(i)))
 
-        # Sort candidates by combined score descending, take top-N.
+        # Sort candidates by combined score descending, take top-N
         hybrid_scores.sort(key=lambda x: x[0], reverse=True)
         top_n = hybrid_scores[:n]
 
